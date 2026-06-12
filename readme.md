@@ -1,0 +1,1 @@
+# Que onda chavales pues aqui esta el repo, no se olviden de antes de trabajar en el hacer git pull para que su repo este actualizado con los cambios de todos.
