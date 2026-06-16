@@ -1,4 +1,4 @@
-# ⚽ FIFA Scout AI — World Cup 2026 Edition
+# FIFA Scout AI — World Cup 2026 Edition
 
 > **Classify any football player's tactical position from their stats alone.**  
 > An end-to-end Machine Learning pipeline trained on 17,954 FIFA players, wrapped in a live interactive demo.
@@ -66,14 +66,14 @@ The app opens at **http://localhost:8501**
 
 | Step | Screen | What It Shows |
 |------|--------|---------------|
-| ⚽ KICKOFF | Dataset Overview | 17,954 players, top-rated, nationality map |
-| 🔍 SCOUTING | Exploratory Analysis | Radar by position, scatter separability |
-| 🔄 TRANSFER | Data Cleaning | Missing values audit, 890 → 4 position map |
-| 🏋️ TRAINING | Feature Engineering | Feature groups, outlier detection & capping |
-| 🎯 TACTICS | Scaling & PCA | Standardization, cumulative variance, 2D PCA |
-| 🏆 MATCH DAY | Model Training | Confusion matrices, per-class metrics for each model |
-| 📊 FINAL WHISTLE | Results | Podium, accuracy comparison, F1 per class |
-| ⭐ STAR SCOUT | Live Predictor | Search real players **or** build a custom profile |
+| KICKOFF | Dataset Overview | 17,954 players, top-rated, nationality map |
+| SCOUTING | Exploratory Analysis | Radar by position, scatter separability |
+| TRANSFER | Data Cleaning | Missing values audit, 890 → 4 position map |
+| TRAINING | Feature Engineering | Feature groups, outlier detection & capping |
+| TACTICS | Scaling & PCA | Standardization, cumulative variance, 2D PCA |
+| MATCH DAY | Model Training | Confusion matrices, per-class metrics for each model |
+| FINAL WHISTLE | Results | Podium, accuracy comparison, F1 per class |
+| STAR SCOUT | Live Predictor | Search real players **or** build a custom profile |
 
 ---
 
