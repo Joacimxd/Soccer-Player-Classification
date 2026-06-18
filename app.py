@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import warnings
 warnings.filterwarnings('ignore')
@@ -165,6 +166,12 @@ st.markdown("""
         background: #2563eb !important;
         box-shadow: 0 0 15px rgba(26,109,255,.35) !important;
     }
+    .stMarkdown p:not([style*="color"]), 
+    .stMarkdown li:not([style*="color"]), 
+    .box-gold, 
+    .box-green {
+        color: #ffffff !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -176,18 +183,54 @@ POSITION_MAP = {
     'GK':  'GK',
     'CB':  'DEF', 'LB':  'DEF', 'RB':  'DEF', 'LWB': 'DEF', 'RWB': 'DEF',
     'CDM': 'MID', 'CM':  'MID', 'CAM': 'MID', 'LM':  'MID', 'RM':  'MID',
+    'LAM': 'MID', 'RAM': 'MID', 'LCM': 'MID', 'RCM': 'MID',
+    'LDM': 'MID', 'RDM': 'MID',
     'ST':  'FWD', 'CF':  'FWD', 'LW':  'FWD', 'RW':  'FWD',
+    'LS':  'FWD', 'RS':  'FWD', 'SS':  'FWD',
+}
+
+SUBPOSITION_MAP = {
+    "GK": "GK",
+    "CB": "DEF_C",
+    "LB": "DEF_L", "LWB": "DEF_L",
+    "RB": "DEF_R", "RWB": "DEF_R",
+    "CDM": "MED_DEF", "LDM": "MED_DEF", "RDM": "MED_DEF",
+    "CM": "MED_C", "LM": "MED_C", "RM": "MED_C",
+    "CAM": "MED_O", "LAM": "MED_O", "RAM": "MED_O",
+    "LCM": "MED_C", "RCM": "MED_C",  
+    "LW": "EX", "RW": "EX",
+    "ST": "DC", "CF": "SD",
+    "LS": "DC", "RS": "DC", "SS": "SD",
+}
+
+SUBPOSITION_LABELS = {
+    "GK": "Arquero (GK)",
+    "DEF_C": "Defensa Central (DEF_C)",
+    "DEF_L": "Lateral Izquierdo / Carrilero (DEF_L)",
+    "DEF_R": "Lateral Derecho / Carrilero (DEF_R)",
+    "MED_DEF": "Pivote Defensivo (MED_DEF)",
+    "MED_C": "Mediocentro Central / Mixto (MED_C)",
+    "MED_O": "Mediocentro Ofensivo / Enganche (MED_O)",
+    "EX": "Extremo (EX)",
+    "DC": "Delantero Centro (DC)",
+    "SD": "Segundo Delantero (SD)",
+}
+
+HIERARCHY = {
+    "GK":  ["GK"],
+    "DEF": ["DEF_C", "DEF_L", "DEF_R"],
+    "MID": ["MED_DEF", "MED_C", "MED_O"],
+    "FWD": ["EX", "DC", "SD"]
 }
 
 FEATURES = [
-    'age', 'height_cm', 'weight_kgs',
+    'age', 'weak_foot(1-5)', 'height_cm', 'weight_kgs', 'preferred_foot', 'skill_moves(1-5)',
     'crossing', 'finishing', 'heading_accuracy', 'short_passing', 'volleys',
     'dribbling', 'curve', 'freekick_accuracy', 'long_passing', 'ball_control',
     'acceleration', 'sprint_speed', 'agility', 'reactions', 'balance',
     'shot_power', 'jumping', 'stamina', 'strength', 'long_shots',
-    'aggression', 'interceptions', 'positioning', 'vision', 'penalties',
-    'composure', 'marking', 'standing_tackle', 'sliding_tackle',
-    'preferred_foot', 'skill_moves(1-5)',
+    'aggression', 'interceptions', 'positioning', 'vision', 'composure',
+    'marking', 'standing_tackle', 'sliding_tackle',
 ]
 
 EXPO_FEATURES = [
@@ -197,6 +240,12 @@ EXPO_FEATURES = [
 ]
 
 POS_COLOR = {'GK': '#f59e0b', 'DEF': '#1a6dff', 'MID': '#00d4ff', 'FWD': '#ef4444'}
+SUBPOS_COLOR = {
+    "GK": "#f59e0b",
+    "DEF_C": "#1a6dff", "DEF_L": "#2563eb", "DEF_R": "#60a5fa",
+    "MED_DEF": "#0d9488", "MED_C": "#0bccc6", "MED_O": "#38bdf8",
+    "EX": "#ef4444", "DC": "#f43f5e", "SD": "#fb7185",
+}
 POS_EMOJI = {'GK': '', 'DEF': '', 'MID': '', 'FWD': ''}
 CLASSES   = ['GK', 'DEF', 'MID', 'FWD']
 
@@ -223,16 +272,23 @@ def load_pipeline():
             return None
         return POSITION_MAP.get(str(s).split(',')[0].strip(), None)
 
+    def map_pos_sub(s):
+        if pd.isna(s):
+            return None
+        return SUBPOSITION_MAP.get(str(s).split(',')[0].strip(), None)
+
     df = df_raw.copy()
     df['position_class'] = df['positions'].apply(map_pos)
-    df = df.dropna(subset=['position_class'])
+    df['position_sub'] = df['positions'].apply(map_pos_sub)
+    df = df.dropna(subset=['position_class', 'position_sub'])
 
     # 3 — encode categorical
     df['preferred_foot'] = (df['preferred_foot'] == 'Right').astype(int)
 
     # 4 — select features
     avail = [f for f in FEATURES if f in df.columns]
-    df_clean = df[avail + ['position_class', 'name']].dropna().reset_index(drop=True)
+    # Keep extra columns for UI: overall_rating, nationality, positions
+    df_clean = df[avail + ['position_class', 'position_sub', 'name', 'positions', 'overall_rating', 'nationality']].dropna().reset_index(drop=True)
 
     # 5 — outlier detection
     skip = {'preferred_foot', 'skill_moves(1-5)'}
@@ -286,15 +342,70 @@ def load_pipeline():
     dt = DecisionTreeClassifier(max_depth=10, class_weight='balanced', random_state=42)
     dt.fit(X_train, y_train)
 
+    rf = RandomForestClassifier(n_estimators=300, max_depth=20, min_samples_leaf=5,
+                                class_weight="balanced", random_state=42)
+    rf.fit(X_train, y_train)
+
     # 10 — evaluate
     results = {}
-    for mname, model in [('KNN', knn), ('SVM', svm), (u'\u00c1rbol de Decisi\u00f3n', dt)]:
+    for mname, model in [
+        ('KNN', knn),
+        ('SVM', svm),
+        ('Random Forest', rf),
+        (u'\u00c1rbol de Decisi\u00f3n', dt)
+    ]:
         y_pred = model.predict(X_test)
         results[mname] = {
             'accuracy': accuracy_score(y_test, y_pred),
             'cm':       confusion_matrix(y_test, y_pred, labels=CLASSES),
             'report':   classification_report(y_test, y_pred, labels=CLASSES, output_dict=True),
         }
+
+    # 11 — Train Level 2 Models (Hierarchical classification)
+    modelos_nivel2 = {}
+    resultados_nivel2 = {}
+    for posicion, subclases in HIERARCHY.items():
+        if posicion != "GK":
+            # Filter rows for this position
+            mask = df_capped["position_sub"].isin(subclases)
+            X_pos = df_capped[mask][avail].values
+            y_pos = df_capped[mask]["position_sub"].values
+            
+            # Split train/test (stratified)
+            X_train_pos, X_test_pos, y_train_pos, y_test_pos = train_test_split(
+                X_pos, y_pos, test_size=0.2, random_state=42, stratify=y_pos
+            )
+            
+            # Train RF model
+            rf_l2 = RandomForestClassifier(n_estimators=200, class_weight="balanced", random_state=42)
+            rf_l2.fit(X_train_pos, y_train_pos)
+            
+            modelos_nivel2[posicion] = rf_l2
+            
+            # Evaluate RF model
+            y_pred_pos = rf_l2.predict(X_test_pos)
+            resultados_nivel2[posicion] = {
+                'accuracy': accuracy_score(y_test_pos, y_pred_pos),
+                'cm':       confusion_matrix(y_test_pos, y_pred_pos, labels=subclases),
+                'report':   classification_report(y_test_pos, y_pred_pos, labels=subclases, output_dict=True),
+                'classes':  subclases
+            }
+
+    # 12 — Train Level 2 Models for Expo Mode (8 features)
+    expo_modelos_nivel2 = {}
+    for posicion, subclases in HIERARCHY.items():
+        if posicion != "GK":
+            mask = df_capped["position_sub"].isin(subclases)
+            X_pos_ex = df_capped[mask][EXPO_FEATURES].values
+            y_pos_ex = df_capped[mask]["position_sub"].values
+            
+            X_train_ex_pos, X_test_ex_pos, y_train_ex_pos, y_test_ex_pos = train_test_split(
+                X_pos_ex, y_pos_ex, test_size=0.2, random_state=42, stratify=y_pos_ex
+            )
+            
+            rf_l2_ex = RandomForestClassifier(n_estimators=200, class_weight="balanced", random_state=42)
+            rf_l2_ex.fit(X_train_ex_pos, y_train_ex_pos)
+            expo_modelos_nivel2[posicion] = rf_l2_ex
 
     P = {
         'df_raw': df_raw, 'df_clean': df_clean, 'df_capped': df_capped,
@@ -303,8 +414,11 @@ def load_pipeline():
         'y': y, 'names': names, 'cum_var': cum_var,
         'scaler': scaler, 'pca_95': pca_95,
         'X_train': X_train, 'X_test': X_test, 'y_train': y_train, 'y_test': y_test,
-        'models': {'KNN': knn, 'SVM': svm, '\u00c1rbol de Decisi\u00f3n': dt},
+        'models': {'KNN': knn, 'SVM': svm, 'Random Forest': rf, u'\u00c1rbol de Decisi\u00f3n': dt},
         'results': results,
+        'modelos_nivel2': modelos_nivel2,
+        'resultados_nivel2': resultados_nivel2,
+        'expo_modelos_nivel2': expo_modelos_nivel2,
     }
 
     # Expo-specific pipeline (no PCA needed for 8 features)
@@ -820,6 +934,12 @@ elif step == 5:
             'El kernel RBF mapea jugadores de forma no lineal para que las clases sean separables. '
             'El balanceo de clases maneja el desbalance hacia MID. <strong>Mejor modelo.</strong>'
         ),
+        'Random Forest': (
+            '', '#10b981', 'Random Forest Classifier',
+            'Construye un ensamble de 300 arboles de decision con remuestreo (bagging) y seleccion aleatoria de atributos. '
+            'La agregacion de votos reduce drasticamente la varianza y el sobreajuste. '
+            'Utiliza balanceo de pesos para compensar las clases mayoritarias. <strong>Gran estabilidad.</strong>'
+        ),
         '\u00c1rbol de Decisi\u00f3n': (
             '', '#00d4ff', '\u00c1rbol de Decisi\u00f3n (profundidad max = 10)',
             'Construye un arbol de umbrales de atributos, ej: "finishing > 65 AND marking < 30 -> FWD". '
@@ -891,6 +1011,67 @@ elif step == 5:
             </div>
             """, unsafe_allow_html=True)
 
+    st.markdown("---")
+    st.markdown("### 📊 Evaluacion de Modelos de Nivel 2 (Clasificacion Jerarquica)")
+    st.markdown("""
+    En el enfoque jerarquico, si el modelo de primer nivel predice **DEF**, **MID** o **FWD**, se ejecuta un clasificador **Random Forest** secundario especifico para esa linea tactica. 
+    A continuacion se muestran los resultados individuales de estos modelos de Nivel 2 entrenados con las 34 variables.
+    """)
+    
+    resultados_nivel2 = P['resultados_nivel2']
+    
+    tabs_l2 = st.tabs(["Defensores (DEF)", "Mediocampistas (MID)", "Delanteros (FWD)"])
+    
+    for tab_l2, pos_l2 in zip(tabs_l2, ["DEF", "MID", "FWD"]):
+        res_l2 = resultados_nivel2[pos_l2]
+        acc_l2 = res_l2['accuracy']
+        cm_l2 = res_l2['cm']
+        report_l2 = res_l2['report']
+        classes_l2 = res_l2['classes']
+        
+        with tab_l2:
+            st.markdown(f"""
+            <div class='card' style='border-left: 5px solid {POS_COLOR[pos_l2]};'>
+                <h3 style='margin:0;'>Clasificador de Subposiciones para {pos_l2}</h3>
+                <div style='font-size:2.5rem;color:#00d4ff;font-weight:900;'>{acc_l2:.2%}</div>
+                <p style='color:#94a3b8;margin:0;'>Precision en Prueba (Nivel 2)</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c1_l2, c2_l2 = st.columns(2)
+            
+            with c1_l2:
+                st.markdown("#### Matriz de Confusion - Subclases")
+                labels_friendly = [SUBPOSITION_LABELS.get(c, c) for c in classes_l2]
+                fig = px.imshow(cm_l2, x=labels_friendly, y=labels_friendly,
+                                color_continuous_scale='Blues', text_auto=True,
+                                labels={'x': 'Predicho', 'y': 'Real'})
+                fig.update_layout(**BASE, height=360)
+                st.plotly_chart(fig, use_container_width=True)
+                
+            with c2_l2:
+                st.markdown("#### Metricas por Rol Especifico")
+                rows_l2 = [
+                    {'Rol': SUBPOSITION_LABELS.get(c, c).split(" (")[0],
+                     'Precision': report_l2[c]['precision'],
+                     'Recall':    report_l2[c]['recall'],
+                     'F1':        report_l2[c]['f1-score']}
+                    for c in classes_l2 if c in report_l2
+                ]
+                mdf_l2 = pd.DataFrame(rows_l2)
+                fig = go.Figure()
+                for metric, mc in [('Precision', '#3b82f6'), ('Recall', '#00d4ff'), ('F1', '#fbbf24')]:
+                    fig.add_trace(go.Bar(
+                        name=metric, x=mdf_l2['Rol'], y=mdf_l2[metric],
+                        marker_color=mc,
+                        text=[f'{v:.2f}' for v in mdf_l2[metric]],
+                        textposition='outside',
+                    ))
+                fig.update_layout(**BASE, barmode='group', height=360,
+                                  yaxis=dict(range=[0, 1.2], **GRID),
+                                  legend=dict(bgcolor='rgba(0,0,0,0)'))
+                st.plotly_chart(fig, use_container_width=True)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  STEP 6 · FINAL WHISTLE  — Results
@@ -900,10 +1081,10 @@ elif step == 6:
     sorted_m = sorted(results.items(), key=lambda x: x[1]['accuracy'], reverse=True)
 
     st.markdown("### Clasificacion del Torneo")
-    medal_order  = [1, 0, 2]
-    medals       = ['1ro', '2do', '3ro']
-    medal_colors = ['#fbbf24', '#94a3b8', '#cd7f32']
-    cols = st.columns(3)
+    medal_order  = [1, 0, 2, 3]
+    medals       = ['1ro', '2do', '3ro', '4to']
+    medal_colors = ['#fbbf24', '#94a3b8', '#cd7f32', '#8ba3cf']
+    cols = st.columns(4)
 
     for rank, (mname, mres) in enumerate(sorted_m):
         acc = mres['accuracy']
@@ -926,7 +1107,7 @@ elif step == 6:
         accs       = [r['accuracy'] for _, r in sorted_m]
         fig = go.Figure(go.Bar(
             x=names_list, y=accs,
-            marker_color=medal_colors,
+            marker_color=['#fbbf24', '#94a3b8', '#cd7f32', '#8ba3cf'],
             text=[f'{a:.1%}' for a in accs],
             textposition='outside', textfont_size=16,
         ))
@@ -940,7 +1121,7 @@ elif step == 6:
 
     with col2:
         st.markdown("#### Puntaje F1 por Clase -- Todos los Modelos")
-        mcolors = {'SVM': '#fbbf24', 'KNN': '#3b82f6', '\u00c1rbol de Decisi\u00f3n': '#00d4ff'}
+        mcolors = {'SVM': '#fbbf24', 'KNN': '#3b82f6', 'Random Forest': '#10b981', '\u00c1rbol de Decisi\u00f3n': '#00d4ff'}
         fig = go.Figure()
         for mname, mres in sorted_m:
             report = mres['report']
@@ -971,6 +1152,47 @@ elif step == 6:
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown("---")
+    st.markdown("### 🌲 Enfoque Jerarquico: Distribucion y Conexion de Posiciones")
+    st.markdown("""
+    A continuacion se muestra la estructura jerarquica de nuestro dataset. El grafico de *Sunburst* representa la proporcion de jugadores 
+    desde su **Linea General (Nivel 1)** hacia sus **Roles Especificos (Nivel 2)**.
+    """)
+    
+    df_clean = P['df_clean']
+    
+    # Sunburst chart
+    df_counts = df_clean.groupby(['position_class', 'position_sub']).size().reset_index(name='count')
+    df_counts['friendly_sub'] = df_counts['position_sub'].map(SUBPOSITION_LABELS)
+    
+    fig_sun = px.sunburst(
+        df_counts,
+        path=['position_class', 'friendly_sub'],
+        values='count',
+        color='position_class',
+        color_discrete_map=POS_COLOR,
+    )
+    fig_sun.update_layout(**BASE, height=500)
+    
+    col_sun1, col_sun2 = st.columns([1.5, 1])
+    with col_sun1:
+        st.plotly_chart(fig_sun, use_container_width=True)
+    with col_sun2:
+        st.markdown("""
+        <div class='box-gold' style='margin-top: 2rem;'>
+            <h4>¿Por que usar un Modelo Jerarquico?</h4>
+            <p>
+                1. <strong>Especializacion:</strong> Un solo clasificador para 10 posiciones tiene dificultades debido al desbalance de clases (ej. solo hay 88 Segundos Delanteros).
+            </p>
+            <p>
+                2. <strong>Reduccion de Ruido:</strong> Separar a los arqueros (GK) y lineas defensivas/ofensivas primero, permite que los modelos de Nivel 2 se enfoquen en diferencias sutiles (ej. distinguir un lateral de un central).
+            </p>
+            <p>
+                3. <strong>Precision Robusta:</strong> Obtenemos precisiones locales elevadas (<strong>89.7%</strong> en defensas y <strong>87.9%</strong> en delanteros) resolviendo el solapamiento MID/FWD de forma granular.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  STEP 7 · STAR SCOUT  — Live Predictor
@@ -982,53 +1204,252 @@ elif step == 7:
         expo_svm = P['expo_svm']
         expo_scaler = P['expo_scaler']
         expo_features = P['expo_features']
+        modelos_nivel2 = P['modelos_nivel2']
+        expo_modelos_nivel2 = P['expo_modelos_nivel2']
+        avail = P['features']
+        scaler = P['scaler']
+        pca_95 = P['pca_95']
 
-        st.markdown("### Predicción en Vivo (Modo Expo)")
-        st.markdown("Ajusta los atributos físicos y medibles de tu prospecto para predecir su posición ideal en el campo.")
+        st.markdown("### Prediccion en Vivo y Exploracion de Jugadores")
+        st.markdown("Prueba la potencia de la clasificacion jerarquica buscando un jugador de la base de datos o creando un prospecto personalizado.")
 
-        slider_defs = [
-            ('age',          'Edad (Años)',           15, 45, 22),
-            ('height_cm',    'Estatura (cm)',         150, 210, 180),
-            ('weight_kgs',   'Peso (kg)',             50, 110, 75),
-            ('sprint_speed', 'Velocidad Sprint (1-99)', 0, 99, 70),
-            ('jumping',      'Salto (1-99)',          0, 99, 70),
-            ('shot_power',   'Fuerza de Tiro (1-99)', 0, 99, 65),
-            ('stamina',      'Resistencia (1-99)',    0, 99, 70),
-            ('strength',     'Fuerza Física (1-99)',  0, 99, 65),
-        ]
+        mode = st.radio("Metodo de Operacion:", ["Buscador de Jugadores Reales", "Creador de Prospecto (Sliders)"], horizontal=True)
 
-        col1, col2 = st.columns(2)
-        custom: dict = {}
-        for i, (feat, label, lo, hi, default) in enumerate(slider_defs):
-            with [col1, col2][i % 2]:
-                custom[feat] = st.slider(label, lo, hi, default)
+        if mode == "Buscador de Jugadores Reales":
+            df_clean = P['df_clean']
+            names_list = sorted(df_clean['name'].unique())
+            
+            # Use Lionel Messi as default if available
+            messi_idx = names_list.index("Lionel Messi") if "Lionel Messi" in names_list else 0
+            selected_name = st.selectbox("Selecciona un Jugador de la Base de Datos:", names_list, index=messi_idx)
+            
+            player_row = df_clean[df_clean['name'] == selected_name].iloc[0]
+            
+            c1, c2 = st.columns([1, 1.2])
+            
+            with c1:
+                st.markdown(f"""
+                <div class='card' style='border-left: 5px solid {POS_COLOR[player_row["position_class"]]};'>
+                    <h3 style='margin:0;'>{player_row["name"]}</h3>
+                    <p style='color:#00d4ff;margin:.2rem 0 0;font-weight:700;'>{player_row["nationality"]} | GRL: {int(player_row["overall_rating"])}</p>
+                    <hr style='margin:.5rem 0;'>
+                    <p style='margin:0;font-size:.9rem;'><strong>Posicion Real (General):</strong> {player_row["position_class"]}</p>
+                    <p style='margin:0;font-size:.9rem;'><strong>Rol Real (Subposicion):</strong> {SUBPOSITION_LABELS.get(player_row["position_sub"], player_row["position_sub"])}</p>
+                    <p style='margin:0;font-size:.8rem;color:#8ba3cf;'>Lista de Posiciones FIFA: {player_row["positions"]}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Model selection for Level 1
+                selected_model_name = st.selectbox("Selecciona el Modelo de Nivel 1 para Inferir:", ["SVM", "KNN", "Random Forest", "Árbol de Decisión"])
+                
+            with c2:
+                # Radar chart
+                radar_features = ['finishing', 'dribbling', 'short_passing', 'crossing', 'marking', 'standing_tackle', 'sprint_speed', 'stamina']
+                avg_stats = df_clean[radar_features].mean().tolist()
+                player_stats = player_row[radar_features].tolist()
+                
+                fig_radar = go.Figure()
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=player_stats + [player_stats[0]],
+                    theta=[f.capitalize() for f in radar_features] + [radar_features[0].capitalize()],
+                    fill='toself',
+                    name=selected_name,
+                    line_color=POS_COLOR.get(player_row['position_class'], '#00d4ff')
+                ))
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=avg_stats + [avg_stats[0]],
+                    theta=[f.capitalize() for f in radar_features] + [radar_features[0].capitalize()],
+                    fill='toself',
+                    name='Promedio General',
+                    line_color='#94a3b8',
+                    opacity=0.5
+                ))
+                fig_radar.update_layout(
+                    **BASE,
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 100], color='#475569'),
+                        bgcolor='rgba(0,0,0,0)'
+                    ),
+                    height=300
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
 
-        if st.button("PREDECIR POSICION", use_container_width=True):
-            # Construir arreglo en el orden de EXPO_FEATURES
-            base_row = [custom[f] for f in expo_features]
-            arr = np.array(base_row).reshape(1, -1)
-            arr_scaled = expo_scaler.transform(arr)
+            if st.button("ANALIZAR Y CLASIFICAR JUGADOR", use_container_width=True):
+                # Features preparation
+                player_feats = player_row[avail].values.reshape(1, -1)
+                
+                # Level 1 Prediction (PCA pipeline)
+                scaled_feats = scaler.transform(player_feats)
+                pca_feats = pca_95.transform(scaled_feats)
+                
+                model_l1 = P['models'][selected_model_name]
+                pred_l1 = model_l1.predict(pca_feats)[0]
+                proba_l1 = model_l1.predict_proba(pca_feats)[0]
+                l1_classes = model_l1.classes_
+                
+                # Level 2 Prediction (Random Forest - raw features)
+                pred_l2 = "GK"
+                proba_l2 = None
+                l2_classes = None
+                
+                if pred_l1 != "GK":
+                    model_l2 = modelos_nivel2[pred_l1]
+                    pred_l2 = model_l2.predict(player_feats)[0]
+                    proba_l2 = model_l2.predict_proba(player_feats)[0]
+                    l2_classes = model_l2.classes_
 
-            pred        = expo_svm.predict(arr_scaled)[0]
-            proba       = expo_svm.predict_proba(arr_scaled)[0]
-            svm_classes = expo_svm.classes_
+                # Display decision results
+                real_l1 = player_row['position_class']
+                real_l2 = player_row['position_sub']
+                
+                if pred_l1 == real_l1 and pred_l2 == real_l2:
+                    match_cls = "box-green"
+                    match_title = "¡COINCIDENCIA EXACTA!"
+                    match_desc = "El modelo jerárquico ha predicho con total precisión tanto la línea táctica como el rol específico del jugador."
+                elif pred_l1 == real_l1:
+                    match_cls = "box-gold"
+                    match_title = "COINCIDENCIA DE LÍNEA TÁCTICA"
+                    match_desc = f"El modelo acertó la línea general ({real_l1}) pero sugirió un rol de {SUBPOSITION_LABELS.get(pred_l2, pred_l2)} para su perfil actual, mientras que oficialmente figura como {SUBPOSITION_LABELS.get(real_l2, real_l2)}."
+                else:
+                    match_cls = "box-gold"
+                    match_title = "PERFIL NO CONVENCIONAL"
+                    match_desc = f"El modelo clasificó al jugador como {pred_l1} ({SUBPOSITION_LABELS.get(pred_l2, pred_l2)}), desviándose de su registro oficial de {real_l1} ({SUBPOSITION_LABELS.get(real_l2, real_l2)}). ¡Interesante reconversión táctica!"
 
-            st.markdown(f"""
-            <div class='hero' style='margin-top:1.5rem'>
-                <h1 style='color:#ffffff;font-size:3rem;letter-spacing:6px;margin:0'>{pred}</h1>
-                <p style='color:#00d4ff;font-size:1.1rem;margin:.25rem 0 0'>
-                    Predicción Expo SVM -- {max(proba):.1%} confianza
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class='hero' style='margin-top:1.5rem;'>
+                    <h4 style='color:#fbbf24;margin:0;'>RESULTADOS DE CLASIFICACIÓN JERÁRQUICA</h4>
+                    <div style='display:flex; justify-content:space-around; align-items:center; margin:1rem 0;'>
+                        <div style='text-align:center;'>
+                            <span style='color:#8ba3cf;font-size:.85rem;display:block;'>LÍNEA INFERIDA (NIVEL 1)</span>
+                            <span style='font-size:2.2rem;font-weight:900;color:{POS_COLOR[pred_l1]}'>{pred_l1}</span>
+                        </div>
+                        <div style='font-size:2rem;color:#475569;'>➔</div>
+                        <div style='text-align:center;'>
+                            <span style='color:#8ba3cf;font-size:.85rem;display:block;'>ROL INFERIDO (NIVEL 2)</span>
+                            <span style='font-size:1.8rem;font-weight:900;color:{SUBPOS_COLOR.get(pred_l2, "#ffffff")}'>{SUBPOSITION_LABELS.get(pred_l2, pred_l2).split(" (")[0]}</span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.markdown(f"""
+                <div class='{match_cls}'>
+                    <strong>{match_title}:</strong> {match_desc}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Probabilities Charts
+                col_chart1, col_chart2 = st.columns(2)
+                
+                with col_chart1:
+                    st.markdown("#### Confianza en Línea General (Nivel 1)")
+                    fig_l1 = go.Figure(go.Bar(
+                        x=l1_classes, y=proba_l1,
+                        marker_color=[POS_COLOR[c] for c in l1_classes],
+                        text=[f'{p:.1%}' for p in proba_l1],
+                        textposition='outside',
+                    ))
+                    fig_l1.update_layout(**BASE, height=280, yaxis=dict(range=[0, 1.3], tickformat='.0%', **GRID))
+                    st.plotly_chart(fig_l1, use_container_width=True)
+                    
+                with col_chart2:
+                    if pred_l1 != "GK" and proba_l2 is not None:
+                        st.markdown("#### Confianza en Rol Específico (Nivel 2)")
+                        friendly_classes = [SUBPOSITION_LABELS.get(c, c).split(" (")[0] for c in l2_classes]
+                        fig_l2 = go.Figure(go.Bar(
+                            x=friendly_classes, y=proba_l2,
+                            marker_color=[SUBPOS_COLOR.get(c, '#ffffff') for c in l2_classes],
+                            text=[f'{p:.1%}' for p in proba_l2],
+                            textposition='outside',
+                        ))
+                        fig_l2.update_layout(**BASE, height=280, yaxis=dict(range=[0, 1.3], tickformat='.0%', **GRID))
+                        st.plotly_chart(fig_l2, use_container_width=True)
+                    else:
+                        st.markdown("#### Confianza en Rol Específico (Nivel 2)")
+                        st.info("Los porteros no requieren un modelo secundario de rol específico.")
 
-            fig = go.Figure(go.Bar(
-                x=[c for c in svm_classes],
-                y=proba,
-                marker_color=[POS_COLOR[c] for c in svm_classes],
-                text=[f'{p:.1%}' for p in proba],
-                textposition='outside',
-            ))
-            fig.update_layout(**BASE, height=300,
-                              yaxis=dict(range=[0, 1.3], tickformat='.0%', **GRID))
-            st.plotly_chart(fig, use_container_width=True)
+        elif mode == "Creador de Prospecto (Sliders)":
+            st.markdown("### Predicción en Vivo (Modo Expo)")
+            st.markdown("Ajusta los atributos físicos y medibles de tu prospecto para predecir su posición ideal en el campo.")
+
+            slider_defs = [
+                ('age',          'Edad (Años)',           15, 45, 22),
+                ('height_cm',    'Estatura (cm)',         150, 210, 180),
+                ('weight_kgs',   'Peso (kg)',             50, 110, 75),
+                ('sprint_speed', 'Velocidad Sprint (1-99)', 0, 99, 70),
+                ('jumping',      'Salto (1-99)',          0, 99, 70),
+                ('shot_power',   'Fuerza de Tiro (1-99)', 0, 99, 65),
+                ('stamina',      'Resistencia (1-99)',    0, 99, 70),
+                ('strength',     'Fuerza Física (1-99)',  0, 99, 65),
+            ]
+
+            col1, col2 = st.columns(2)
+            custom: dict = {}
+            for i, (feat, label, lo, hi, default) in enumerate(slider_defs):
+                with [col1, col2][i % 2]:
+                    custom[feat] = st.slider(label, lo, hi, default)
+
+            if st.button("PREDECIR POSICION", use_container_width=True):
+                # Build physical features array
+                base_row = [custom[f] for f in expo_features]
+                arr = np.array(base_row).reshape(1, -1)
+                arr_scaled = expo_scaler.transform(arr)
+
+                # Predict Level 1 (General Position)
+                pred_l1 = expo_svm.predict(arr_scaled)[0]
+                proba_l1 = expo_svm.predict_proba(arr_scaled)[0]
+                svm_classes = expo_svm.classes_
+
+                # Predict Level 2 (Sub-position using physical features RF)
+                pred_l2 = "GK"
+                proba_l2 = None
+                l2_classes = None
+                
+                if pred_l1 != "GK":
+                    model_l2_ex = expo_modelos_nivel2[pred_l1]
+                    pred_l2 = model_l2_ex.predict(arr)[0]
+                    proba_l2 = model_l2_ex.predict_proba(arr)[0]
+                    l2_classes = model_l2_ex.classes_
+
+                st.markdown(f"""
+                <div class='hero' style='margin-top:1.5rem'>
+                    <h1 style='color:#ffffff;font-size:3rem;letter-spacing:6px;margin:0'>{pred_l1}</h1>
+                    <p style='color:#00d4ff;font-size:1.15rem;margin:.25rem 0 0;font-weight:700;'>
+                        Rol Inferido: {SUBPOSITION_LABELS.get(pred_l2, pred_l2)}
+                    </p>
+                    <p style='color:#94a3b8;font-size:0.9rem;margin:0'>
+                        Predicción Expo SVM + RF Jerárquico -- {max(proba_l1):.1%} confianza general
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                col_chart1, col_chart2 = st.columns(2)
+                
+                with col_chart1:
+                    st.markdown("#### Confianza en Línea General (Nivel 1)")
+                    fig = go.Figure(go.Bar(
+                        x=[c for c in svm_classes],
+                        y=proba_l1,
+                        marker_color=[POS_COLOR[c] for c in svm_classes],
+                        text=[f'{p:.1%}' for p in proba_l1],
+                        textposition='outside',
+                    ))
+                    fig.update_layout(**BASE, height=280,
+                                      yaxis=dict(range=[0, 1.3], tickformat='.0%', **GRID))
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                with col_chart2:
+                    if pred_l1 != "GK" and proba_l2 is not None:
+                        st.markdown("#### Confianza en Rol Específico (Nivel 2)")
+                        friendly_classes = [SUBPOSITION_LABELS.get(c, c).split(" (")[0] for c in l2_classes]
+                        fig_l2 = go.Figure(go.Bar(
+                            x=friendly_classes, y=proba_l2,
+                            marker_color=[SUBPOS_COLOR.get(c, '#ffffff') for c in l2_classes],
+                            text=[f'{p:.1%}' for p in proba_l2],
+                            textposition='outside',
+                        ))
+                        fig_l2.update_layout(**BASE, height=280, yaxis=dict(range=[0, 1.3], tickformat='.0%', **GRID))
+                        st.plotly_chart(fig_l2, use_container_width=True)
+                    else:
+                        st.markdown("#### Confianza en Rol Específico (Nivel 2)")
+                        st.info("Los porteros no requieren un modelo secundario de rol específico.")
